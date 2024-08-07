@@ -125,7 +125,7 @@ static void showDevList( Context* ctx )
     for( size_t cnt=0; cnt<devCnt; cnt++ )
     {
         auto dev = devList->getDevice( cnt );
-        printf( "[%3u] ", cnt ); 
+        printf( "[%3zu] ", cnt ); 
         prtDevInfo(dev);
     }
 }
@@ -155,7 +155,7 @@ bool upgradeFirmware( shared_ptr<Device> device, string firmwarePath )
                                     const char *message, 
                                     uint8_t percent) 
             {
-                printf( "%s (state: %s, percent: %u %% \n",
+                printf( "%s (state: %d, percent: %u %% \n",
                         message,
                         state,
                         percent );

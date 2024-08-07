@@ -15,8 +15,8 @@ TARGET = astrafwu
 LIBORBBECSDK_PATH=../OrbbecSDK_v1.10.11/SDK
 
 CXXFLAGS += -std=c++11
-#CXXFLAGS += -fexceptions -O3 -s
-CXXFLAGS += -g3
+CXXFLAGS += -fexceptions -O3 -s
+#CXXFLAGS += -g3
 
 #CXXFLAGS += -DDEBUG
 #CXXFLAGS += -DDEBUG_LIBUSB
