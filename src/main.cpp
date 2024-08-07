@@ -35,8 +35,8 @@ using namespace ob;
 #define RELEASE_A( _x_ )    delete[] _x_; _x_ = nullptr
 #define APP_V_MAJ           (0)
 #define APP_V_MIN           (1)
-#define APP_V_PAT           (0)
-#define APP_V_BLD           (21)
+#define APP_V_PAT           (1)
+#define APP_V_BLD           (23)
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -84,15 +84,15 @@ static void releaseParams()
 static void showHelp()
 {
     printf( "\n" );
-    printf( " usage : %s [option] (parameter) [firmware file]\n", optpar_me );
+    printf( " usuage : %s [option] (parameter) [firmware file]\n", optpar_me );
     printf( "\n" );
-    printf( " -h, --help        : show help (this).\n" );
-    printf( " -l, --list        : enumerate detected devices.\n" );
-    printf( " -d, --devid (uid) : select uid device only.\n" );
-    printf( " -s, --devsn (sn)  : select device only for sn.\n" );
-    printf( " -a, --all         : select all devices.\n" );
-    printf( " -e, --lessverbose : make verbose lesser.\n" );
-    printf( " -v, --version     : shows versions only.\n" );
+    printf( "\t -h, --help        : show help (this).\n" );
+    printf( "\t -l, --list        : enumerate detected devices.\n" );
+    printf( "\t -d, --devid (uid) : select uid device only.\n" );
+    printf( "\t -s, --devsn (sn)  : select device only for sn.\n" );
+    printf( "\t -a, --all         : select all devices.\n" );
+    printf( "\t -e, --lessverbose : make verbose lesser.\n" );
+    printf( "\t -v, --version     : shows versions only.\n" );
     printf( "\n" );
 }
 
@@ -282,11 +282,11 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    if ( optpar_lessverbose > 0 )
+    if ( optpar_lessverbose == 0 )
     {
         printf( "AstraFWU, version %u.%u.%u.%u, %s\n",
                 APP_V_MAJ, APP_V_MIN, APP_V_PAT, APP_V_BLD,
-                "(C)2024 Raph.K@BearRobotics.\n" );
+                "(C)2024 Raph.K@BearRobotics." );
     }
 
     if ( par_parsed == 0 )
