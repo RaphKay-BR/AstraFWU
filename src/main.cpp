@@ -166,13 +166,22 @@ bool upgradeFirmware( shared_ptr<Device> device, string firmwarePath )
             false
         );
     }
-    catch(Error &e) {
-        cerr << "Upgrade Firmware ob error. function:" << e.getName() << "\nargs:" << e.getArgs() << "\nmessage:" << e.getMessage()
-                  << "\ntype:" << e.getExceptionType() << endl;
+    catch(Error &e) 
+    {
+        fprintf( stderr, "\nError type %u occured\n"
+                         " .. function %s, args %s, msg : %s\n",
+                         e.getExceptionType(),
+                         e.getName(),
+                         e.getArgs(),
+                         e.getMessage() );
+
     }
-    catch(exception &e) {
-        if(e.what()) {
-            cout << "Upgrade Firmware Exception. what: " << string(e.what()) << endl;
+    catch(exception &e) 
+    {
+        if(e.what()) 
+        {
+            fprintf( stderr, "\nException occured: %s\n",
+                             e.what() );
         }
     }
 
@@ -391,7 +400,8 @@ int main(int argc, char **argv)
         if ( ( optpar_fwfile == nullptr ) || 
              ( access( optpar_fwfile, 0 ) != 0 ) )
         {
-            fprintf( stderr, "Cannot access firmware file.\n" );
+            fprintf( stderr, "Cannot access firmware file : %s\n",
+                     optpar_fwfile );
             showHelp();
             releaseParams();
             return 0;
