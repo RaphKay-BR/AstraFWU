@@ -35,8 +35,8 @@ using namespace ob;
 #define RELEASE_A( _x_ )    delete[] _x_; _x_ = nullptr
 #define APP_V_MAJ           (0)
 #define APP_V_MIN           (1)
-#define APP_V_PAT           (1)
-#define APP_V_BLD           (23)
+#define APP_V_PAT           (2)
+#define APP_V_BLD           (30)
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -410,7 +410,7 @@ int main(int argc, char **argv)
 
     for ( size_t cnt=0; cnt<fw_dev_lists.size(); cnt++ )
     {
-        auto dev = devList->getDevice(cnt);
+        auto dev = devList->getDevice( fw_dev_lists[cnt] );
         printf( "Starting FW update -> " );
         prtDevInfo(dev);
 
