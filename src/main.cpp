@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////
-// Astra Mini series firmware updater, for POSIX
+// Astra Mini series firmware updater, for MinGW-W64 (Windows)
 // =======================================================================
 // (C) 2024 Raphael Kim @ bear robotics.
 // 
@@ -18,16 +18,19 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
+#include <vector>
 #include <thread>
+#include <condition_variable>
 #include <mutex>
 
-#include <libobsensor/ObSensor.hpp>
-#include <libobsensor/hpp/Error.hpp>
+extern "C" {
+#include <libobsensor/ObSensor.h>
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 
 using namespace std;
-using namespace ob;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -65,12 +68,15 @@ static char*        optpar_fwfile = nullptr;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-bool                   isWaitRebootComplete_ = false;
-bool                   isDeviceRemoved_      = false;
-mutex                  waitRebootMutex_;
-string                 deviceUid_;
-string                 deviceSN_;
-shared_ptr<Device>     rebootedDevice_;
+bool                	is_wait_reboot_complete_ = false;
+bool                	is_device_removed_       = false;
+bool                    is_upgrade_success_      = false;
+ob_device              *rebooted_device_    = nullptr;
+int                     cb_ud				= 0;
+std::condition_variable wait_reboot_condition_;
+std::mutex              wait_reboot_mutex_;
+char                    device_uid_[128]    = { 0 };
+char                    device_sn_[32]      = { 0 };
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -96,96 +102,129 @@ static void showHelp()
     printf( "\n" );
 }
 
-static void prtDevInfo( shared_ptr<Device> device )
+static void prtDevInfo( ob_device* device )
 {
     if ( device != nullptr )
-    {
-        auto devInfo = device->getDeviceInfo();
+    {		
+		ob_error *error = NULL;
 
-        if ( devInfo != nullptr )
+		ob_device_info *dev_info = ob_device_get_device_info(device, &error);
+        if ( dev_info != nullptr )
         {
+
+			const char *name = ob_device_info_name(dev_info, &error);
+			uint16_t pid = ob_device_info_pid(dev_info, &error);
+			uint16_t vid = ob_device_info_vid(dev_info, &error);
+			const char *uid = ob_device_info_uid(dev_info, &error);
+			const char *fw_ver = ob_device_info_firmware_version(dev_info, &error);
+			const char *sn = ob_device_info_serial_number(dev_info, &error);
+		
             printf( "%s, USB=%04X:%04X:%s, SN=%s, Ver. = %s\n",
-                    devInfo->name(),
-                    devInfo->vid(),
-                    devInfo->pid(),
-                    devInfo->uid(),
-                    devInfo->serialNumber(),
-                    devInfo->firmwareVersion() );
+                    name, vid, pid, uid, sn, fw_ver );
+
+			ob_delete_device_info(dev_info, &error);
         }
     }
 }
 
-static void showDevList( Context* ctx )
+void dev_changed_cb(ob_device_list *removed, ob_device_list *added, void *user_data) 
 {
-    if ( ctx == nullptr ) return;
+    ob_error *error = NULL;
+    if(is_wait_reboot_complete_) 
+	{
+        if(added) 
+		{
+            uint32_t device_count = ob_device_list_device_count(added, &error);
+            if(device_count > 0) 
+			{
+                ob_device *device = ob_device_list_get_device(added, 0, &error);
+                ob_device_info *dev_info = ob_device_get_device_info(device, &error);
 
-    auto devList = ctx->queryDeviceList();
-    size_t devCnt = devList->deviceCount();
+                bool        is_assigned_device = false;
+                const char *sn                 = ob_device_info_serial_number(dev_info, &error);
 
+                if(0 == strcmp(sn, device_sn_)) 
+				{
+                    rebooted_device_         = device;
+                    is_assigned_device       = true;
+                    is_wait_reboot_complete_ = false;
+
+                    std::unique_lock<std::mutex> lk(wait_reboot_mutex_);
+                    wait_reboot_condition_.notify_all();
+                }
+
+                ob_delete_device_info(dev_info, &error);
+
+                if(!is_assigned_device) 
+				{
+                    ob_delete_device(device, &error);
+                }
+            }
+        }
+
+        if(removed) 
+		{
+            uint32_t device_count = ob_device_list_device_count(removed, &error);
+
+            if(device_count > 0) 
+			{
+                // Get device sn
+                const char *uid = ob_device_list_get_device_uid(removed, 0, &error);
+
+                if(0 == strcmp(device_uid_, uid)) 
+				{
+                    is_device_removed_ = true;
+                }
+            }
+        }
+    }  // if is_wait_reboot_complete_
+
+    ob_delete_device_list(removed, &error);
+    ob_delete_device_list(added, &error);
+}
+
+static void showDevList( ob_device_list *dl )
+{
+	if ( dl == nullptr ) return;
+
+	ob_error *error = NULL;
+	
+	uint32_t devCnt = ob_device_list_device_count( dl, &error);
+	
     for( size_t cnt=0; cnt<devCnt; cnt++ )
     {
-        auto dev = devList->getDevice( cnt );
+		ob_device *dev = ob_device_list_get_device( dl, 0, &error );				
         printf( "[%3zu] ", cnt ); 
-        prtDevInfo(dev);
+        prtDevInfo( dev );
     }
 }
 
-bool upgradeFirmware( shared_ptr<Device> device, string firmwarePath ) 
+void dev_upgrade_cb( ob_upgrade_state st, const char *msg, uint8_t perc, void *ud) 
 {
-    auto index     = firmwarePath.find_last_of(".img");
-    bool isImgFile = index != string::npos;
-    index          = firmwarePath.find_last_of(".bin");
-    bool isBinFile = index != string::npos;
+    if( st == STAT_DONE ) 
+	{
+        is_upgrade_success_ = true;
+    }
+}
 
-    if(!(isImgFile || isBinFile)) 
-    {
-        fprintf( stderr,
-                 "Upgrade Fimware failed. invalid file: %s\n",
-                 firmwarePath.c_str() );
+bool upgrade_firmware( ob_device *dev, const char *fpath )
+{
+    const char *index     = strstr(fpath, ".img");
+    bool        isImgFile = (bool)index;
+    index                 = strstr(fpath, ".bin");
+    bool isBinFile        = (bool)index;
+
+    if( !(isImgFile || isBinFile) )
+	{
+        printf("Error, Invalid firmware file: %s\n", fpath);
         return false;
     }
+	
+    is_upgrade_success_ = false;
+    ob_error *error     = NULL;
+    ob_device_upgrade( dev, fpath, dev_upgrade_cb, false, &cb_ud, &error);
 
-    bool isUpgradeSuccess = false;
-
-    try 
-    {
-        device->deviceUpgrade(
-            firmwarePath.c_str(),
-            [=, &isUpgradeSuccess]( OBUpgradeState state, 
-                                    const char *message, 
-                                    uint8_t percent) 
-            {
-                printf( "%s (state: %d, percent: %u %% \n",
-                        message,
-                        state,
-                        percent );
-
-                if(state == STAT_DONE)
-                    isUpgradeSuccess = true;
-            },
-            false
-        );
-    }
-    catch(Error &e) 
-    {
-        fprintf( stderr, "\nError type %u occured\n"
-                         " .. function %s, args %s, msg : %s\n",
-                         e.getExceptionType(),
-                         e.getName(),
-                         e.getArgs(),
-                         e.getMessage() );
-
-    }
-    catch(exception &e) 
-    {
-        if(e.what()) 
-        {
-            fprintf( stderr, "\nException occured: %s\n",
-                             e.what() );
-        }
-    }
-
-    return isUpgradeSuccess;
+    return is_upgrade_success_;
 }
 
 int main(int argc, char **argv) 
@@ -273,18 +312,19 @@ int main(int argc, char **argv)
     if ( optpar_versions > 0 )
     {
         printf( "app.version=%u.%u.%u.%u\n"
-                "sdk.version=%u.%u.%u\n",
+                "sdk.version=%u.%u.%u.%u\n",
                 APP_V_MAJ, APP_V_MIN, APP_V_PAT, APP_V_BLD,
-                Version::getMajor(),
-                Version::getMinor(),
-                Version::getPatch() );
+                ob_get_major_version(),
+                ob_get_minor_version(),
+                ob_get_patch_version(),
+				ob_get_stage_version() );
         releaseParams();
         return 0;
     }
 
     if ( optpar_lessverbose == 0 )
     {
-        printf( "AstraFWU, version %u.%u.%u.%u, %s\n",
+        printf( "AstraFWU-Win64, version %u.%u.%u.%u, %s\n",
                 APP_V_MAJ, APP_V_MIN, APP_V_PAT, APP_V_BLD,
                 "(C)2024 Raph.K@BearRobotics." );
     }
@@ -297,63 +337,28 @@ int main(int argc, char **argv)
     }
 
     // supress messy logs ...
-    Context::setLoggerSeverity( OBLogSeverity::OB_LOG_SEVERITY_NONE );
+    // Context::setLoggerSeverity( OBLogSeverity::OB_LOG_SEVERITY_NONE );
 
-    // Orbbec SDK Context init here.
-    Context ctx;
-    ctx.setDeviceChangedCallback( [](shared_ptr<DeviceList> removedList, shared_ptr<DeviceList> addedList) 
-    {
-        if( isWaitRebootComplete_ ) 
-        {
-            if( addedList && addedList->deviceCount() > 0 ) 
-            {
-                for( size_t x=0; x<addedList->deviceCount(); x++ )
-                {
-                    auto device = addedList->getDevice( x );
-                    string cmps = device->getDeviceInfo()->serialNumber();
+    ob_error   *error = NULL;
+    ob_context *ctx   = ob_create_context(&error);
 
-                    if( isDeviceRemoved_ && deviceSN_ == cmps )
-                    {
-                        rebootedDevice_       = device;
-                        isWaitRebootComplete_ = false;
-
-                        unique_lock<mutex> lk(waitRebootMutex_);
-                        break;
-                    }
-                }
-            }
-
-            if( removedList && removedList->deviceCount() > 0 ) 
-            {
-                for( size_t x=0; x<removedList->deviceCount(); x++ )
-                {
-                    string cmps = removedList->uid( x );
-                    if( deviceUid_ == cmps )
-                    {
-                        isDeviceRemoved_ = true;
-                        break;
-                    }
-                }
-            }
-        }  /// of - if isWaitRebootComplete_
-    });
-
-    // list option ?
-    if ( optpar_list > 0 )
-    {
-        showDevList( &ctx );
+    ob_set_device_changed_callback(ctx, dev_changed_cb, &cb_ud, &error);
+    ob_device_list *dev_list = ob_query_device_list(ctx, &error);
+	
+    int devCnt = ob_device_list_device_count(dev_list, &error);
+    
+	if(devCnt == 0) 
+	{
+        printf("Device not found!\n");
         releaseParams();
         return 0;
     }
 
-    auto devList = ctx.queryDeviceList();
-    size_t devCnt = devList->deviceCount();
-
-    // Get the number of connected devices
-    if( devCnt == 0 )
+    // list option ?
+    if ( optpar_list > 0 )
     {
-        fprintf( stderr, "device not found.\n" );
-        // don't return to error.
+        showDevList( dev_list );
+        releaseParams();
         return 0;
     }
 
@@ -372,25 +377,38 @@ int main(int argc, char **argv)
     {
         for( size_t cnt=0; cnt<devCnt; cnt++ )
         {
-            auto dev = devList->getDevice(cnt);
-            auto devInf = dev->getDeviceInfo();
+			ob_device *dev = ob_device_list_get_device( dev_list, cnt, &error );	
+			ob_device_info *dev_info = ob_device_get_device_info( dev, &error);
+			
+			if ( dev_info != nullptr )
+			{
+				const char *name = ob_device_info_name(dev_info, &error);
+				uint16_t pid = ob_device_info_pid(dev_info, &error);
+				uint16_t vid = ob_device_info_vid(dev_info, &error);
+				const char *uid = ob_device_info_uid(dev_info, &error);
+				const char *fw_ver = ob_device_info_firmware_version(dev_info, &error);
+				const char *sn = ob_device_info_serial_number(dev_info, &error);
 
-            if ( optpar_devtype == 0 )
-            {
-                string dev_uid = devInf->uid();
-                if ( dev_uid == optpar_dev_uid )
-                {
-                    fw_dev_lists.push_back( cnt );
-                }
-            }
-            else
-            {
-                string dev_sn = devInf->serialNumber();
-                if ( dev_sn == optpar_dev_sn )
-                {
-                    fw_dev_lists.push_back( cnt );
-                }
-            }
+				char s_vid[32] = {0};
+				char s_pid[32] = {0};
+				snprintf( s_vid, 32, "%04X", vid );
+				snprintf( s_pid, 32, "%04X", pid );
+
+				if ( optpar_devtype == 0 )
+				{
+					if ( strcmp( uid, optpar_dev_uid ) == 0 )
+					{
+						fw_dev_lists.push_back( cnt );
+					}
+				}
+				else
+				{
+					if ( strcmp( sn,optpar_dev_sn )== 0 )
+					{
+						fw_dev_lists.push_back( cnt );
+					}
+				}
+			}
         }
     }
 
@@ -410,19 +428,21 @@ int main(int argc, char **argv)
 
     for ( size_t cnt=0; cnt<fw_dev_lists.size(); cnt++ )
     {
-        auto dev = devList->getDevice(cnt);
+        ob_device *dev = ob_device_list_get_device( dev_list, fw_dev_lists[cnt], &error );	
         printf( "Starting FW update -> " );
         prtDevInfo(dev);
 
         // Store uid to wait device reboot
         {
-            auto devInfo = dev->getDeviceInfo();
-            deviceUid_   = string(devInfo->uid());
-            deviceSN_    = string(devInfo->serialNumber());
+			ob_device_info *dev_info = ob_device_get_device_info( dev, &error);
+            snprintf( device_uid_, 128, "%s", 
+			          ob_device_info_uid(dev_info, &error) );
+            snprintf( device_sn_, 32, "%s", 
+			          ob_device_info_serial_number(dev_info, &error) );
         }
 
         // Upgrade firmware file Path
-        if(!upgradeFirmware(dev, optpar_fwfile)) 
+        if(!upgrade_firmware(dev, optpar_fwfile)) 
         {
             fprintf( stderr, "firmware upgrading failure.\n" );
             return -1;
@@ -430,19 +450,22 @@ int main(int argc, char **argv)
 
         printf( "upgraded : rebooting -> " );
 
-        isDeviceRemoved_      = false;
-        isWaitRebootComplete_ = true;
-        dev->reboot();
-        dev     = nullptr;
-        devList = nullptr;
+        ob_device_reboot(dev, &error);
+        ob_delete_device(dev, &error);
+        ob_delete_device_list(dev_list, &error);
 
         // wait reboot complete
+        printf("Wait device reboot completed\n");
         {
-            unique_lock<mutex> lk(waitRebootMutex_);
-        }
-
+			std::unique_lock<std::mutex> lk(wait_reboot_mutex_);
+			wait_reboot_condition_.wait_for( lk, 
+				std::chrono::milliseconds(60000), 
+				[]() { return !is_wait_reboot_complete_; }
+			);
+		}
+		
         // Check is reboot complete
-        if(rebootedDevice_) 
+        if(rebooted_device_) 
         {
             printf( "Ok.\n" );
         }
@@ -455,4 +478,3 @@ int main(int argc, char **argv)
     releaseParams();
     return 0;
 }
-

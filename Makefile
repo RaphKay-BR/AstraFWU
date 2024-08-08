@@ -1,5 +1,5 @@
 ## Makefile for Multiple Astra Mini Pro
-## Target G++
+## Target G++ (MinGW-W64)
 ## (C) 2024 Raphael Kim @ Bear Robotics
 
 GCC = $(PREFIX)gcc
@@ -14,8 +14,8 @@ TARGET = astrafwu
 
 LIBORBBECSDK_PATH=../OrbbecSDK_v1.10.11/SDK
 
-CXXFLAGS += -std=c++11
-CXXFLAGS += -fexceptions -O3 -s
+CXXFLAGS += -std=c++17 -mwindows
+CXXFLAGS += -fexceptions -O3 -s -static
 #CXXFLAGS += -g3
 
 #CXXFLAGS += -DDEBUG
@@ -23,9 +23,9 @@ CXXFLAGS += -fexceptions -O3 -s
 
 CXXFLAGS += -I$(LIBORBBECSDK_PATH)/include
 
+# Windows has different naming of OrbbecSDK.
 LFLAGS += -lpthread
-LFLAGS += $(LIBORBBECSDK_PATH)/lib/libOrbbecSDK.so
-LFLAGS += $(LIBORBBECSDK_PATH)/lib/libdepthengine.so
+LFLAGS += $(LIBORBBECSDK_PATH)/lib/OrbbecSDK.dll
 
 CPPSRCS = $(wildcard $(SRC_PATH)/*.cpp)
 CPPOBJS = $(CPPSRCS:$(SRC_PATH)/%.cpp=$(OBJ_PATH)/%.o)
