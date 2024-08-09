@@ -39,8 +39,7 @@ cp -rf $SRC_BIN $DST_PATH > /dev/null
 echo -e "\033[36mDone\033[0m"
 
 echo -en "\033[34mCopying Orbbec SO images ... \033[0m"
-cp -rf $LIBORBBECSDK_PATH/lib/libOrb* $DST_PATH > /dev/null
-cp -rf $LIBORBBECSDK_PATH/lib/libob_usb.so $DST_PATH > /dev/null
+cp -rf $LIBORBBECSDK_PATH/lib/* $DST_PATH > /dev/null
 echo -e "\033[36mDone\033[0m"
 
 echo -en "\033[34mPatching ELF reference path ... \033[0m"
