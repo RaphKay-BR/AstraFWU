@@ -19,8 +19,8 @@ Astra device firmware upgrader for Windows (MinGW-W64)
 - Clone this repository into new directory.
 - So you can see ...
    ```
-    +NEWDIR\OrbbecSDK_v1.10.1
-	       \AstraFWU
+    +NEWDIR\OrbbecSDK_v1.10.11
+            \AstraFWU
    ```
 - Get into AstraFWU.
 - Check Makefile to where is OrbbecSDK, you can change path in here.
