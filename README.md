@@ -3,8 +3,9 @@ Astra device firmware upgrader for Linux
 
 ## Required
 - OrbbecSDK 1.10.11 or later version
-- Debian Linux ( also Ubunut ) amd64 or aarch64
+- Debian Linux ( also Ubuntu ) amd64 or aarch64
 - patchelf: to fix reference directory for libOrbecSDK.so.
+  - Install it : `sudo apt isntall patchelf`
 
 ## How to build ?
 - Make a new directory.
@@ -12,7 +13,7 @@ Astra device firmware upgrader for Linux
 - Clone this repository into new directory.
 - So you can see ...
    ```
-    +NEWDIR/OrbbecSDK_v1.10.1
+    +NEWDIR/OrbbecSDK_v1.10.11
            /AstraFWU
    ```
 - Get into AstraFWU.
