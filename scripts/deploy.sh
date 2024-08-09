@@ -28,11 +28,11 @@ if [ ! -e $DST_PATH ];then
     exit 1
 fi
 
-echo -en "\033[34mCopying ELF image ... \033[0m"
+echo -en "\033[34mCopying Win64.PE/EXE image ... \033[0m"
 cp -rf $SRC_BIN $DST_PATH > /dev/null
 echo -e "\033[36mDone\033[0m"
 
-echo -en "\033[34mCopying Orbbec SO images ... \033[0m"
+echo -en "\033[34mCopying Orbbec Win64.PE/DLL images ... \033[0m"
 cp -rf $LIBORBBECSDK_PATH/lib/*.dll $DST_PATH > /dev/null
 echo -e "\033[36mDone\033[0m"
 
