@@ -223,15 +223,29 @@ static void showDevList( ob_device_list *dl )
 
 void dev_upgrade_cb( ob_upgrade_state st, const char *msg, uint8_t perc, void *ud) 
 {
-    printf( "\r .. upgrading %3u %% ", perc );
+    if ( optpar_lessverbose == false )
+    {
+        printf( "\r .. upgrading %3u %% ", perc );
 
-    if ( strlen( msg ) > 0 )
-        printf( ", %s" );
+        if ( strlen( msg ) > 0 )
+            printf( ", %s" );
+    }
+    else
+    {
+        printf( "\r .. %3u %% ", perc );
+    }
 
     if( st == STAT_DONE ) 
     {
         is_upgrade_success_ = true;
-        printf( "\n .. completed !\n" );
+        if ( optpar_lessverbose == false )
+        {
+            printf( "\n .. completed !\n" );
+        }
+        else
+        {
+            printf( "\n" );
+        }
     }
 }
 
@@ -244,7 +258,10 @@ bool upgrade_firmware( ob_device *dev, const char *fpath )
 
     if( !(isImgFile || isBinFile) )
     {
-        printf("Error, Invalid firmware file: %s\n", fpath);
+        if ( optpar_lessverbose == false )
+        {
+            printf("Error, Invalid firmware file: %s\n", fpath);
+        }
         return false;
     }
     
@@ -257,7 +274,7 @@ bool upgrade_firmware( ob_device *dev, const char *fpath )
 
 int main(int argc, char **argv) 
 {
-    // Windows need sepearate paths ...
+    // Windows need separate paths ...
     char* argv0 = strdup( argv[0] );
     char* stk = strtok( argv0, "\\" );
     char* lstk = nullptr;
@@ -274,6 +291,8 @@ int main(int argc, char **argv)
     RELEASE_A( argv0 );
 
     size_t par_parsed = 0;
+
+    int retcode = 0;
 
     // get options -
     for(;;)
@@ -391,12 +410,13 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    // suppress messy logs ...
-    // Context::setLoggerSeverity( OBLogSeverity::OB_LOG_SEVERITY_NONE );
-
     ob_error   *error = NULL;
-    ob_context *ctx   = ob_create_context(&error);
 
+    // suppress messy logs ...
+    ob_set_logger_severity( OB_LOG_SEVERITY_NONE, &error );
+
+    // get OrbbecSDK context ..
+    ob_context *ctx   = ob_create_context(&error);
     ob_set_device_changed_callback(ctx, dev_changed_cb, &cb_ud, &error);
     ob_device_list *dev_list = ob_query_device_list(ctx, &error);
     
@@ -478,11 +498,14 @@ int main(int argc, char **argv)
         if ( ( optpar_fwfile == nullptr ) || 
              ( access( optpar_fwfile, 0 ) != 0 ) )
         {
-            fprintf( stderr, "Cannot access firmware file : %s\n",
-                     optpar_fwfile );
-            showHelp();
+            if ( optpar_lessverbose == false )
+            {
+                fprintf( stderr, "Cannot access firmware file : %s\n",
+                         optpar_fwfile );
+                showHelp();
+            }
             releaseParams();
-            return 0;
+            return -1;
         }
     }
 
@@ -490,8 +513,11 @@ int main(int argc, char **argv)
     {
         ob_device *dev = \
             ob_device_list_get_device( dev_list, fw_dev_lists[cnt], &error );  
-        printf( "Starting FW update : " );
+        if ( optpar_lessverbose == false )
+            printf( "Starting FW update : " );
+
         prtDevInfo(dev);
+
 
         char s_vid[32] = {0};
         char s_pid[32] = {0};
@@ -514,14 +540,17 @@ int main(int argc, char **argv)
             return -1;
         }
 
-        printf( "Rebooting device .." );
+        if ( optpar_lessverbose == false )
+            printf( "Rebooting device .. " );
 
         ob_device_reboot(dev, &error);
         ob_delete_device(dev, &error);
         ob_delete_device_list(dev_list, &error);
 
+        if ( optpar_lessverbose == false )
+            printf("completed\n");
+
         // wait reboot complete
-        printf("reboot completed\n");
         {
             unique_lock<mutex> lk(wait_reboot_mutex_);
 
@@ -533,17 +562,35 @@ int main(int argc, char **argv)
         }
         
         // Check is reboot complete
-        if(rebooted_device_) 
+        if( rebooted_device_ != nullptr )
         {
-            printf( "Ok.\n" );
+            if ( optpar_lessverbose == true )
+            {
+                printf( "Upgrading Compeleted.\n" );
+            }
+            else
+            {
+                printf( "Done.\n" );
+            }
+
+            rebooted_device_ = nullptr;
         }
         else
         {
-            printf( "Failure.\n" );
+            if ( optpar_lessverbose == true )
+            {
+                fprintf( stderr, "Upgrading Failure.\n" );
+            }
+            else
+            {
+                printf( "Failure.\n" );
+            }
+
+            retcode = -1;
         }
     }
 
     releaseParams();
 
-    return 0;
+    return retcode;
 }
