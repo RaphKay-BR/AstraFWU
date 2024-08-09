@@ -39,8 +39,8 @@ using namespace std;
 #define RELEASE_AA( _x_ )   if ( _x_ != nullptr ) RELEASE_A( _x_ )
 #define APP_V_MAJ           (0)
 #define APP_V_MIN           (1)
-#define APP_V_PAT           (1)
-#define APP_V_BLD           (26)
+#define APP_V_PAT           (2)
+#define APP_V_BLD           (30)
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -337,6 +337,19 @@ int main(int argc, char **argv)
                     }
                 }
                 break;
+
+                case 'p':
+                {
+                    if ( optarg != nullptr )
+                    {
+                        optpar_dev_usbpid = strdup( optarg );
+                        optpar_all = 0;
+                        optpar_devonly = 1;
+                        optpar_devtype = 2;
+                        par_parsed++;
+                    }
+                }
+                break;
             }
         }
         else
@@ -428,22 +441,34 @@ int main(int argc, char **argv)
                 const char *uid = ob_device_info_uid(dev_info, &error);
                 const char *fw_ver = ob_device_info_firmware_version(dev_info, &error);
                 const char *sn = ob_device_info_serial_number(dev_info, &error);
+                char usb_pid[6] = {0};
+                snprintf( usb_pid, 6, 
+                          "%X", ob_device_info_pid(dev_info, &error) );
                 
-                if ( optpar_devtype == 0 )
+                switch( optpar_devtype )
                 {
-                    if ( strcmp( uid, optpar_dev_uid ) == 0 )
-                    {
-                        fw_dev_lists.push_back( cnt );
-                    }
+                    case 0:
+                        if ( strcmp( uid, optpar_dev_uid ) == 0 )
+                        {
+                            fw_dev_lists.push_back( cnt );
+                        }
+                        break;
+
+                    case 1:
+                        if ( strcmp( sn,optpar_dev_sn )== 0 )
+                        {
+                            fw_dev_lists.push_back( cnt );
+                        }
+                        break;
+
+                    case 2:
+                        if ( strcmp( optpar_dev_usbpid, usb_pid ) == 0 )
+                        {
+                            fw_dev_lists.push_back( cnt );
+                        }
+                        break;
                 }
-                else
-                {
-                    if ( strcmp( sn,optpar_dev_sn )== 0 )
-                    {
-                        fw_dev_lists.push_back( cnt );
-                    }
-                }
-            }
+            } /// of switch() ...
         }
     }
 
