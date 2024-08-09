@@ -106,7 +106,7 @@ static void showHelp()
     printf( "\t -s, --devsn (sn)  : select device only for sn.\n" );
     printf( "\t -p, --pid (pid)   : select USB PID (VID 2BC5 is fixed).\n" );
     printf( "\t                     e.g. 0407 == Mini S.\n" );
-    printf( "\t                     e.g. 065B == Mini S.\n" );
+    printf( "\t                          065B == Mini Pro.\n" );
     printf( "\t -a, --all         : select all devices.\n" );
     printf( "\t -e, --lessverbose : make verbose lesser.\n" );
     printf( "\t -v, --version     : shows versions only.\n" );
