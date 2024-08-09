@@ -5,7 +5,6 @@
 // 
 // supported platforms : Debian Linux amd64, aarch64
 //                       macOS11 universal
-//                       Windows amd64
 // 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -18,7 +17,9 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
+#include <vector>
 #include <thread>
+#include <condition_variable>
 #include <mutex>
 
 #include <libobsensor/ObSensor.hpp>
@@ -33,6 +34,7 @@ using namespace ob;
 
 #define RELEASE_P( _x_ )    delete _x_; _x_ = nullptr
 #define RELEASE_A( _x_ )    delete[] _x_; _x_ = nullptr
+#define RELEASE_AA( _x_ )   if ( _x_ != nullptr ) RELEASE_A( _x_ )
 #define APP_V_MAJ           (0)
 #define APP_V_MIN           (1)
 #define APP_V_PAT           (2)
@@ -40,12 +42,13 @@ using namespace ob;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-static char          short_opts[] = " :hld:s:aev";
+static char          short_opts[] = " :hld:s:p:aev";
 static struct option long_opts[] = {
     { "help",           no_argument,        0, 'h' },
     { "list",           no_argument,        0, 'l' },
     { "devid",          required_argument,  0, 'd' },
     { "devsn",          required_argument,  0, 's' },
+    { "pid",            required_argument,  0, 'p' },
     { "all",            no_argument,        0, 'a' },
     { "lessverbose",    no_argument,        0, 'e' },
     { "versions",       no_argument,        0, 'v' },
@@ -58,12 +61,16 @@ static uint8_t      optpar_list = 0;
 static uint8_t      optpar_versions = 0;
 static uint8_t      optpar_lessverbose = 0;
 static uint8_t      optpar_devonly = 0;
-static uint8_t      optpar_devtype = 0; /// 0 == UID, 1 == SN
+// devtype : 
+// 0 == UID, 1 == SN, 2 == USB PID
+static uint8_t      optpar_devtype = 0; 
 static char*        optpar_dev_uid = nullptr;
 static char*        optpar_dev_sn = nullptr;
+static char*        optpar_dev_usbpid = nullptr;
 static char*        optpar_fwfile = nullptr;
 
 ////////////////////////////////////////////////////////////////////////////////
+// Orbbec SDK related -
 
 bool                   isWaitRebootComplete_ = false;
 bool                   isDeviceRemoved_      = false;
@@ -76,9 +83,10 @@ shared_ptr<Device>     rebootedDevice_;
 
 static void releaseParams()
 {
-    if ( optpar_dev_uid != nullptr ) RELEASE_A( optpar_dev_uid );
-    if ( optpar_dev_sn != nullptr ) RELEASE_A( optpar_dev_sn );
-    if ( optpar_fwfile != nullptr ) RELEASE_A( optpar_fwfile );
+    RELEASE_AA( optpar_dev_uid );
+    RELEASE_AA( optpar_dev_sn );
+    RELEASE_AA( optpar_dev_usbpid ); 
+    RELEASE_AA( optpar_fwfile );
 }
 
 static void showHelp()
@@ -90,6 +98,9 @@ static void showHelp()
     printf( "\t -l, --list        : enumerate detected devices.\n" );
     printf( "\t -d, --devid (uid) : select uid device only.\n" );
     printf( "\t -s, --devsn (sn)  : select device only for sn.\n" );
+    printf( "\t -p, --pid (pid)   : select USB PID (VID 2BC5 is fixed).\n" );
+    printf( "\t                     e.g. 0407 == Mini S.\n" );
+    printf( "\t                          065B == Mini Pro.\n" );
     printf( "\t -a, --all         : select all devices.\n" );
     printf( "\t -e, --lessverbose : make verbose lesser.\n" );
     printf( "\t -v, --version     : shows versions only.\n" );
@@ -194,6 +205,8 @@ int main(int argc, char **argv)
 
     size_t par_parsed = 0;
 
+    int retcode = 0;
+
     // get options -
     for(;;)
     {
@@ -252,6 +265,19 @@ int main(int argc, char **argv)
                         optpar_all = 0;
                         optpar_devonly = 1;
                         optpar_devtype = 1;
+                        par_parsed++;
+                    }
+                }
+                break;
+
+                case 'p':
+                {
+                    if ( optarg != nullptr )
+                    {
+                        optpar_dev_usbpid = strdup( optarg );
+                        optpar_all = 0;
+                        optpar_devonly = 1;
+                        optpar_devtype = 2;
                         par_parsed++;
                     }
                 }
@@ -354,6 +380,7 @@ int main(int argc, char **argv)
     {
         fprintf( stderr, "device not found.\n" );
         // don't return to error.
+        releaseParams();
         return 0;
     }
 
@@ -404,14 +431,17 @@ int main(int argc, char **argv)
                      optpar_fwfile );
             showHelp();
             releaseParams();
-            return 0;
+            return -1;
         }
     }
 
     for ( size_t cnt=0; cnt<fw_dev_lists.size(); cnt++ )
     {
         auto dev = devList->getDevice( fw_dev_lists[cnt] );
-        printf( "Starting FW update -> " );
+        
+        if ( optpar_lessverbose == false )
+            printf( "Starting FW update : " );
+       
         prtDevInfo(dev);
 
         // Store uid to wait device reboot
@@ -425,10 +455,12 @@ int main(int argc, char **argv)
         if(!upgradeFirmware(dev, optpar_fwfile)) 
         {
             fprintf( stderr, "firmware upgrading failure.\n" );
+            releaseParams();
             return -1;
         }
 
-        printf( "upgraded : rebooting -> " );
+        if ( optpar_lessverbose == false )
+            printf( "Rebooting device .. " );
 
         isDeviceRemoved_      = false;
         isWaitRebootComplete_ = true;
@@ -436,23 +468,41 @@ int main(int argc, char **argv)
         dev     = nullptr;
         devList = nullptr;
 
+        if ( optpar_lessverbose == false )
+            printf( "completed\n" );
+
         // wait reboot complete
-        {
-            unique_lock<mutex> lk(waitRebootMutex_);
-        }
+        unique_lock<mutex> lk(waitRebootMutex_);
 
         // Check is reboot complete
         if(rebootedDevice_) 
         {
-            printf( "Ok.\n" );
+            if ( optpar_lessverbose == true )
+            {
+                printf( "Upgrade Completed.\n" );
+            }
+            else
+            {
+                printf( "Done.\n" );
+            }
         }
         else
         {
-            printf( "Failure.\n" );
+            if ( optpar_lessverbose == true )
+            {
+                fprintf( stderr, "Upgrading Failure.\n" );
+            }
+            else
+            {
+                printf( "Failure.\n" );
+            }
+
+            retcode = -1;
         }
     }
 
     releaseParams();
-    return 0;
+
+    return retcode;
 }
 
